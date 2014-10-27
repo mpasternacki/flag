@@ -74,6 +74,7 @@ import (
     "strings"
     "syscall"
     "path"
+    "regexp"
 )
 
 // ErrHelp is the error returned if the flag -help is invoked but no such flag is defined.
@@ -276,6 +277,7 @@ type FlagSet struct {
     exitOnError   bool     // does the program exit if there's an error?
     errorHandling ErrorHandling
     output        io.Writer // nil means stderr; use out() accessor
+    envPrefix     string
 }
 
 // A Flag represents the state of a flag.
@@ -811,9 +813,7 @@ func (f *FlagSet) Parse(arguments []string) error {
     }
 
     // Parse environment variables
-    name := path.Base(os.Args[0])
-    prefix := strings.ToUpper(name)
-    f.ParseEnv(prefix)
+    f.ParseEnv("")
 
     // Parse configuration from file
     config_flag := f.actual["config"]
@@ -824,9 +824,30 @@ func (f *FlagSet) Parse(arguments []string) error {
     return nil
 }
 
+var toEnvRx = regexp.MustCompile(`[^A-Z0-9_]+`)
+
+func toEnv(str string) string {
+    return toEnvRx.ReplaceAllLiteralString(strings.ToUpper(str), "_")
+}
+
+func (f *FlagSet) GetEnvPrefix() string {
+    if f.envPrefix == "" {
+        // FIXME: convert non-alphanumeric characters to underscore
+        f.envPrefix = toEnv(path.Base(f.name))
+    }
+    return f.envPrefix
+}
+
+func (f *FlagSet) SetEnvPrefix(prefix string) {
+    f.envPrefix = prefix
+}
+
 // Parse flags from environment variables. Flags already set will be ignored.
 func (f *FlagSet) ParseEnv(prefix string) error {
-    
+    if prefix == "" {
+        prefix = f.GetEnvPrefix()
+    }
+
     m := f.formal
 
     for _, flag := range(m) {
@@ -841,7 +862,7 @@ func (f *FlagSet) ParseEnv(prefix string) error {
         }
 
         has_value := false
-        env_key := prefix + "_" + strings.ToUpper(flag.Name)
+        env_key := prefix + "_" + toEnv(flag.Name)
         value, is_set := syscall.Getenv(env_key)
 
         if is_set == false {continue}
